@@ -1,50 +1,92 @@
-﻿using System;
-using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.DurableTask;
 using Microsoft.Azure.WebJobs.Extensions.Http;
-using Microsoft.Azure.WebJobs.Host;
 using Microsoft.Extensions.Logging;
 
 namespace FunWithFlags.MoreComplexExample
 {
-    public static class ShipDefenseOrchestrator
+    using System.Linq;
+    using Microsoft.Extensions.Configuration.AzureAppConfiguration;
+    using Microsoft.FeatureManagement;
+
+    public class ShipDefenseOrchestrator
     {
-        [FunctionName("ShipDefenseOrchestrator")]
-        public static async Task<List<string>> RunOrchestrator(
-            [OrchestrationTrigger] IDurableOrchestrationContext context)
+        private readonly IFeatureManager _featureManager;
+        private readonly IConfigurationRefresher _refresher;
+
+        public ShipDefenseOrchestrator(IFeatureManager featureManager, IConfigurationRefresherProvider refresherProvider)
         {
-            var outputs = new List<string>();
-
-            // Replace "hello" with the name of your Durable Activity Function.
-            outputs.Add(await context.CallActivityAsync<string>("ShipDefenseOrchestrator_Hello", "Tokyo"));
-            outputs.Add(await context.CallActivityAsync<string>("ShipDefenseOrchestrator_Hello", "Seattle"));
-            outputs.Add(await context.CallActivityAsync<string>("ShipDefenseOrchestrator_Hello", "London"));
-
-            // returns ["Hello Tokyo!", "Hello Seattle!", "Hello London!"]
-            return outputs;
-            
+            _featureManager = featureManager;
+            _refresher = refresherProvider.Refreshers.First();
         }
 
-        [FunctionName("ShipDefenseOrchestrator_Hello")]
-        public static async Task<string> SayHello([ActivityTrigger] string name, ILogger log)
+        [FunctionName(nameof(ShipDefenseOrchestrator))]
+        public  async Task<List<string>> Run(
+            [OrchestrationTrigger] IDurableOrchestrationContext context)
         {
-            log.LogInformation($"Saying hello to {name}.");
-            return $"Hello {name}!";
+            var actions = new List<string>();
+            var isParanoid = await context.CallActivityAsync<bool>(nameof(IsParanoid), new {});
+            var flag = await context.CallActivityAsync<string>(nameof(CheckOtherShipsFlag), new { });
+            if (flag == "Pirate")
+            {
+                actions.Add(await context.CallActivityAsync<string>(nameof(PrepareDefensiveManeuvers), null));
+                actions.Add(await context.CallActivityAsync<string>(nameof(FireCanons), null));
+            }
+
+            if (isParanoid)
+            {
+                actions.Add(await context.CallActivityAsync<string>(nameof(PrepareDefensiveManeuvers), null));
+            }
+
+            return actions;
+        }
+
+        [FunctionName(nameof(CheckOtherShipsFlag))]
+        public async Task<string> CheckOtherShipsFlag([ActivityTrigger] object obj)
+        {
+            await _refresher.TryRefreshAsync();
+            var shipFlag = "The West India Company";
+            var usePirateShip = await this._featureManager.IsEnabledAsync("pirate-flag");
+
+            if (usePirateShip)
+            {
+                shipFlag = "Pirate";
+            }
+
+            return shipFlag;
+        }
+
+        [FunctionName(nameof(PrepareDefensiveManeuvers))]
+        public async Task<string> PrepareDefensiveManeuvers([ActivityTrigger] object obj)
+        {
+            return "To battle stations!";
+        }
+
+        [FunctionName(nameof(FireCanons))]
+        public async Task<string> FireCanons([ActivityTrigger] object obj)
+        {
+            return "BOOM!";
+        }
+
+        [FunctionName(nameof(IsParanoid))]
+        public async Task<bool> IsParanoid([ActivityTrigger] object unit)
+        {
+            await this._refresher.TryRefreshAsync();
+            return await this._featureManager.IsEnabledAsync("IsParanoid");
         }
 
         [FunctionName("ShipDefenseOrchestrator_HttpStart")]
-        public static async Task<HttpResponseMessage> HttpStart(
+        public async Task<HttpResponseMessage> HttpStart(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")]
             HttpRequestMessage req,
-            [OrchestrationClient] IDurableOrchestrationClient starter,
+            [DurableClient] IDurableOrchestrationClient starter,
             ILogger log)
         {
             // Function input comes from the request content.
-            string instanceId = await starter.StartNewAsync("ShipDefenseOrchestrator", null);
+            string instanceId = await starter.StartNewAsync(nameof(ShipDefenseOrchestrator), null);
 
             log.LogInformation($"Started orchestration with ID = '{instanceId}'.");
 
