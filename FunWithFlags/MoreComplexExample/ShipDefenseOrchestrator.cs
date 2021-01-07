@@ -28,7 +28,9 @@ namespace FunWithFlags.MoreComplexExample
             [OrchestrationTrigger] IDurableOrchestrationContext context)
         {
             var actions = new List<string>();
-            var isParanoid = await context.CallActivityAsync<bool>(nameof(IsParanoid), new {});
+
+            await this._refresher.TryRefreshAsync();
+            var isParanoid = await this._featureManager.IsEnabledAsync("IsParanoid");
             var flag = await context.CallActivityAsync<string>(nameof(CheckOtherShipsFlag), new { });
             if (flag == "Pirate")
             {

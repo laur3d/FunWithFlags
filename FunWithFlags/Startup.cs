@@ -6,9 +6,7 @@ using Microsoft.Extensions.Configuration;
 [assembly: FunctionsStartup(typeof(Startup))]
 namespace FunWithFlags
 {
-
-
-        public class Startup : FunctionsStartup
+    public class Startup : FunctionsStartup
         {
             private IConfiguration configuration;
             public override void Configure(IFunctionsHostBuilder builder)
